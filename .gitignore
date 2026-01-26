@@ -1,0 +1,17 @@
+# Archivos de estado de Terraform
+*.tfstate
+*.tfstate.*
+
+# Carpeta de inicialización (binarios y módulos instalados)
+.terraform/
+
+# Archivos de variables sensibles (donde pondrás tus llaves si pruebas local)
+*.tfvars
+*.tfvars.json
+
+# Archivos de log
+*.log
+
+# Archivos de configuración de CLI
+.terraformrc
+terraform.rc
