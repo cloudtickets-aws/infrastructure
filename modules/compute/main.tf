@@ -14,6 +14,12 @@ data "archive_file" "process_zip" {
   output_path = "${path.module}/functions/process_reservation.zip"
 }
 
+data "archive_file" "payment_zip" {
+  type        = "zip"
+  source_file = "${path.module}/functions/lambda_payment.py"
+  output_path = "${path.module}/functions/lambda_payment.zip"
+}
+
 # ==========================================
 # 2. CONFIGURACIÓN DE LAMBDA: INGESTIÓN (API)
 # ==========================================
@@ -53,13 +59,33 @@ resource "aws_lambda_function" "process_reservation" {
     variables = {
       INVENTORY_TABLE    = var.inventory_table_name
       RESERVATIONS_TABLE = var.reservations_table_name
-      STATE_MACHINE_ARN  = aws_sfn_state_machine.reservation_flow.arn
+      STATE_MACHINE_ARN  = aws_sfn_state_machine.reservation_flow.id
     }
   }
 }
 
 # ==========================================
-# 4. TRIGGER: CONEXIÓN SQS -> LAMBDA WORKER
+# 4. CONFIGURACIÓN DE LAMBDA: SIMULACIÓN PAGO
+# ==========================================
+
+resource "aws_lambda_function" "payment" {
+  function_name = "${var.project_name}-payment-${var.environment}"
+  role          = var.lambda_ingestion_role_arn
+  handler       = "lambda_payment.handler"
+  runtime       = "python3.13"
+
+  filename         = data.archive_file.payment_zip.output_path
+  source_code_hash = data.archive_file.payment_zip.output_base64sha256
+
+  environment {
+    variables = {
+      RESERVATIONS_TABLE = var.reservations_table_name
+    }
+  }
+}
+
+# ==========================================
+# 5. TRIGGER: CONEXIÓN SQS -> LAMBDA WORKER
 # ==========================================
 
 resource "aws_lambda_event_source_mapping" "sqs_trigger" {
@@ -69,7 +95,7 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
 }
 
 # ==========================================
-# 5. CONFIGURACIÓN DE API GATEWAY (HTTP API)
+# 6. CONFIGURACIÓN DE API GATEWAY (HTTP API)
 # ==========================================
 
 resource "aws_apigatewayv2_api" "main" {
@@ -89,33 +115,56 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
 }
 
-resource "aws_apigatewayv2_integration" "lambda_integration" {
+# Integraciones
+resource "aws_apigatewayv2_integration" "ingestion_integration" {
   api_id           = aws_apigatewayv2_api.main.id
   integration_type = "AWS_PROXY"
   integration_uri  = aws_lambda_function.ingestion.invoke_arn
 }
 
+resource "aws_apigatewayv2_integration" "payment_integration" {
+  api_id           = aws_apigatewayv2_api.main.id
+  integration_type = "AWS_PROXY"
+  integration_uri  = aws_lambda_function.payment.invoke_arn
+}
+
+# Rutas
 resource "aws_apigatewayv2_route" "reserve_route" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /reserve"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
+  target    = "integrations/${aws_apigatewayv2_integration.ingestion_integration.id}"
 }
 
-resource "aws_lambda_permission" "api_gw" {
-  statement_id  = "AllowExecutionFromAPIGateway"
+resource "aws_apigatewayv2_route" "payment_route" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "POST /pay"
+  target    = "integrations/${aws_apigatewayv2_integration.payment_integration.id}"
+}
+
+# Permisos para API Gateway
+resource "aws_lambda_permission" "api_gw_ingestion" {
+  statement_id  = "AllowExecutionFromAPIGatewayIngestion"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.ingestion.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
 }
 
+resource "aws_lambda_permission" "api_gw_payment" {
+  statement_id  = "AllowExecutionFromAPIGatewayPayment"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.payment.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
+}
+
 # ==========================================
-# 6. STEP FUNCTIONS: FLUJO DE RESERVA
+# 7. STEP FUNCTIONS: FLUJO DE RESERVA
 # ==========================================
 
 resource "aws_sfn_state_machine" "reservation_flow" {
   name     = "${var.project_name}-reserve-flow-${var.environment}"
-  role_arn = var.sfn_role_arn # Esta vendrá del output de security
+  role_arn = var.sfn_role_arn
 
   definition = jsonencode({
     Comment = "Espera 30s y libera el asiento si no se ha pagado"
@@ -155,7 +204,6 @@ resource "aws_sfn_state_machine" "reservation_flow" {
         Parameters = {
           TableName = var.inventory_table_name
           Key = {
-            # Ojo: Aquí la SFN lee los datos del GetItem anterior
             EventID = { "S.$" : "$.db_result.Item.EventID.S" }
             SeatID  = { "S.$" : "$.db_result.Item.SeatID.S" }
           }
