@@ -1,24 +1,13 @@
-resource "aws_dynamodb_table" "reservations" {
-  name           = "${var.project_name}-reservations-${var.environment}"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "ReservationID"
+# ==========================================
+# 1. CAPA DE ALMACENAMIENTO DE OBJETOS (S3)
+# ==========================================
 
-  attribute {
-    name = "ReservationID"
-    type = "S"
-  }
-
-  ttl {
-    attribute_name = "ExpirationTime"
-    enabled        = true
-  }
-}
-
+# Bucket para Hosting del Frontend (Sitio Estático)
 resource "aws_s3_bucket" "frontend_host" {
   bucket = "${var.project_name}-site-${var.environment}"
 }
 
-# 1. Habilitar Hosting Estático en el Bucket
+# Configuración de Hosting Estático para el Frontend
 resource "aws_s3_bucket_website_configuration" "frontend_config" {
   bucket = aws_s3_bucket.frontend_host.id
 
@@ -27,39 +16,16 @@ resource "aws_s3_bucket_website_configuration" "frontend_config" {
   }
 
   error_document {
-    key = "index.html" # Clave para que React Router funcione bien
+    key = "index.html"
   }
 }
 
-# 2. Configurar el acceso público (Necesario para que CloudFront lea los archivos)
-resource "aws_s3_bucket_public_access_block" "frontend_access" {
-  bucket = aws_s3_bucket.frontend_host.id
-
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
+# Bucket para almacenar los tickets generados (PDFs)
+resource "aws_s3_bucket" "tickets_storage" {
+  bucket = "${var.project_name}-tickets-${var.environment}"
 }
 
-resource "aws_s3_bucket_policy" "frontend_policy" {
-  bucket = aws_s3_bucket.frontend_host.id
-  
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid       = "PublicReadGetObject"
-        Effect    = "Allow"
-        Principal = "*"
-        Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.frontend_host.arn}/*"
-      },
-    ]
-  })
-  depends_on = [aws_s3_bucket_public_access_block.frontend_access]
-}
-
-# 3. Creación de CloudFront (La CDN)
+# Red de Distribución (CloudFront) para el Frontend
 resource "aws_cloudfront_distribution" "s3_distribution" {
   origin {
     domain_name = aws_s3_bucket.frontend_host.bucket_regional_domain_name
@@ -96,5 +62,44 @@ resource "aws_cloudfront_distribution" "s3_distribution" {
 
   viewer_certificate {
     cloudfront_default_certificate = true
+  }
+}
+
+# ==========================================
+# 2. CAPA DE PERSISTENCIA (DYNAMODB)
+# ==========================================
+
+# Tabla de Reservas (Control de estado de la compra)
+resource "aws_dynamodb_table" "reservations" {
+  name           = "${var.project_name}-reservations-${var.environment}"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "ReservationID"
+
+  attribute {
+    name = "ReservationID"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "ExpirationTime"
+    enabled         = true
+  }
+}
+
+# Tabla de Inventario (Control de disponibilidad de asientos)
+resource "aws_dynamodb_table" "events_inventory" {
+  name           = "${var.project_name}-inventory-${var.environment}"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "EventID"
+  range_key      = "SeatID"
+
+  attribute {
+    name = "EventID"
+    type = "S"
+  }
+
+  attribute {
+    name = "SeatID"
+    type = "S"
   }
 }

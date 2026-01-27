@@ -1,0 +1,11 @@
+variable "project_name" {}
+variable "environment" {}
+
+# Datos de Seguridad
+variable "lambda_ingestion_role_arn" {
+  description = "ARN del rol creado en el módulo de seguridad"
+}
+
+# Datos de Storage (Nombres de tablas para el código Node.js)
+variable "inventory_table_name" {}
+variable "reservations_table_name" {}
