@@ -2,7 +2,6 @@
 # 1. POLÍTICAS DE ACCESO PARA STORAGE (S3)
 # ==========================================
 
-# Configuración de Acceso Público para el Bucket de Frontend
 resource "aws_s3_bucket_public_access_block" "frontend_access" {
   bucket = var.frontend_bucket_id
 
@@ -12,7 +11,6 @@ resource "aws_s3_bucket_public_access_block" "frontend_access" {
   restrict_public_buckets = false
 }
 
-# Política de Bucket para permitir lectura pública (vía CloudFront/Web)
 resource "aws_s3_bucket_policy" "frontend_policy" {
   bucket = var.frontend_bucket_id
   
@@ -29,7 +27,6 @@ resource "aws_s3_bucket_policy" "frontend_policy" {
     ]
   })
   
-  # Garantiza que el bloqueo de acceso público se desactive antes de aplicar la política
   depends_on = [aws_s3_bucket_public_access_block.frontend_access]
 }
 
@@ -37,7 +34,6 @@ resource "aws_s3_bucket_policy" "frontend_policy" {
 # 2. ROLES Y POLÍTICAS DE CÓMPUTO (LAMBDAS)
 # ==========================================
 
-# Rol de IAM para la Lambda de Ingesta
 resource "aws_iam_role" "lambda_ingestion_role" {
   name = "${var.project_name}-lambda-ingestion-role-${var.environment}"
 
@@ -55,10 +51,10 @@ resource "aws_iam_role" "lambda_ingestion_role" {
   })
 }
 
-# Política de permisos para DynamoDB y CloudWatch Logs
-resource "aws_iam_policy" "lambda_dynamo_policy" {
-  name        = "${var.project_name}-lambda-dynamo-policy-${var.environment}"
-  description = "Permite a la lambda de ingesta interactuar con DynamoDB y generar logs"
+# Política de permisos para DynamoDB, CloudWatch Logs y EventBridge
+resource "aws_iam_policy" "lambda_main_policy" {
+  name        = "${var.project_name}-lambda-main-policy-${var.environment}"
+  description = "Permite interactuar con DynamoDB, Logs y publicar en EventBridge"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -86,13 +82,20 @@ resource "aws_iam_policy" "lambda_dynamo_policy" {
         ]
         Effect   = "Allow"
         Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Sid    = "AllowEventBridgePublish"
+        Action = [
+          "events:PutEvents"
+        ]
+        Effect   = "Allow"
+        Resource = "*" # En producción se limita al ARN del Bus, por ahora "*" para facilitar el despliegue inicial
       }
     ]
   })
 }
 
-# Vinculación de la política al Rol de la Lambda
-resource "aws_iam_role_policy_attachment" "attach_dynamo" {
+resource "aws_iam_role_policy_attachment" "attach_main" {
   role       = aws_iam_role.lambda_ingestion_role.name
-  policy_arn = aws_iam_policy.lambda_dynamo_policy.arn
+  policy_arn = aws_iam_policy.lambda_main_policy.arn
 }

@@ -19,14 +19,22 @@ module "security" {
   inventory_table_arn    = module.storage.inventory_table_arn
 }
 
-# 3. CAPA DE LÓGICA DE NEGOCIO (API Y LAMBDA)
+# 3. CAPA DE MENSAJERÍA (EVENTOS Y COLAS)
+module "messaging" {
+  source       = "./modules/messaging"
+  project_name = var.project_name
+  environment  = var.environment
+}
+
+# 4. CAPA DE LÓGICA DE NEGOCIO (API Y LAMBDA)
 module "compute" {
   source       = "./modules/compute"
   project_name = var.project_name
   environment  = var.environment
 
-  # Inyectamos el Rol de Security y los Nombres de las tablas de Storage
+  # Inyectamos el Rol de Security, Tablas de Storage y el Bus de Messaging
   lambda_ingestion_role_arn = module.security.lambda_ingestion_role_arn
   inventory_table_name      = module.storage.inventory_table_name
   reservations_table_name   = module.storage.reservations_table_name
+  event_bus_name            = module.messaging.event_bus_name  # <-- Nueva conexión
 }

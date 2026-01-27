@@ -29,6 +29,7 @@ resource "aws_lambda_function" "ingestion" {
     variables = {
       INVENTORY_TABLE    = var.inventory_table_name
       RESERVATIONS_TABLE = var.reservations_table_name
+      EVENT_BUS_NAME     = var.event_bus_name  # <-- La Lambda ya sabrá a donde disparar
     }
   }
 }

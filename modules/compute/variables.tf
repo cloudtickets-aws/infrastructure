@@ -9,3 +9,7 @@ variable "lambda_ingestion_role_arn" {
 # Datos de Storage (Nombres de tablas para el código Node.js)
 variable "inventory_table_name" {}
 variable "reservations_table_name" {}
+
+variable "event_bus_name" {
+  description = "Nombre del EventBridge Bus para publicar eventos"
+}
