@@ -13,3 +13,8 @@ variable "reservations_table_name" {}
 variable "event_bus_name" {
   description = "Nombre del EventBridge Bus para publicar eventos"
 }
+
+variable "reservation_queue_arn" {
+  description = "ARN de la cola SQS para permisos de IAM"
+  type        = string
+}

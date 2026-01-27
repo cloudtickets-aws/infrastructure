@@ -35,3 +35,8 @@ variable "inventory_table_arn" {
   description = "ARN de la tabla de inventario para permisos de IAM"
   type        = string
 }
+
+variable "reservation_queue_arn" {
+  description = "ARN de la cola SQS para permisos de IAM"
+  type        = string
+}

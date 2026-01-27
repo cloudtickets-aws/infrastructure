@@ -90,6 +90,16 @@ resource "aws_iam_policy" "lambda_main_policy" {
         ]
         Effect   = "Allow"
         Resource = "*" # En producción se limita al ARN del Bus, por ahora "*" para facilitar el despliegue inicial
+      },
+      {
+        Sid    = "AllowSQSRead"
+        Action = [
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes"
+        ]
+        Effect   = "Allow"
+        Resource = var.reservation_queue_arn # Asegúrate de tener esta variable en el módulo
       }
     ]
   })
