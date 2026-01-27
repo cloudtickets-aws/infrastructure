@@ -21,7 +21,7 @@ data "archive_file" "payment_zip" {
 }
 
 # ==========================================
-# 2. CONFIGURACIÓN DE LAMBDA: INGESTIÓN (API)
+# 2. CONFIGURACIÓN DE LAMBDAS
 # ==========================================
 
 resource "aws_lambda_function" "ingestion" {
@@ -29,7 +29,6 @@ resource "aws_lambda_function" "ingestion" {
   role          = var.lambda_ingestion_role_arn
   handler       = "lambda_ingestion.handler"
   runtime       = "python3.13"
-
   filename         = data.archive_file.ingestion_zip.output_path
   source_code_hash = data.archive_file.ingestion_zip.output_base64sha256
 
@@ -42,16 +41,11 @@ resource "aws_lambda_function" "ingestion" {
   }
 }
 
-# ==========================================
-# 3. CONFIGURACIÓN DE LAMBDA: PROCESAMIENTO (WORKER)
-# ==========================================
-
 resource "aws_lambda_function" "process_reservation" {
   function_name = "${var.project_name}-process-reservation-${var.environment}"
   role          = var.lambda_ingestion_role_arn
   handler       = "process_reservation.handler"
   runtime       = "python3.13"
-
   filename         = data.archive_file.process_zip.output_path
   source_code_hash = data.archive_file.process_zip.output_base64sha256
 
@@ -59,21 +53,16 @@ resource "aws_lambda_function" "process_reservation" {
     variables = {
       INVENTORY_TABLE    = var.inventory_table_name
       RESERVATIONS_TABLE = var.reservations_table_name
-      STATE_MACHINE_ARN  = aws_sfn_state_machine.reservation_flow.id
+      STATE_MACHINE_ARN  = aws_sfn_state_machine.reservation_flow.arn
     }
   }
 }
-
-# ==========================================
-# 4. CONFIGURACIÓN DE LAMBDA: SIMULACIÓN PAGO
-# ==========================================
 
 resource "aws_lambda_function" "payment" {
   function_name = "${var.project_name}-payment-${var.environment}"
   role          = var.lambda_ingestion_role_arn
   handler       = "lambda_payment.handler"
   runtime       = "python3.13"
-
   filename         = data.archive_file.payment_zip.output_path
   source_code_hash = data.archive_file.payment_zip.output_base64sha256
 
@@ -85,7 +74,7 @@ resource "aws_lambda_function" "payment" {
 }
 
 # ==========================================
-# 5. TRIGGER: CONEXIÓN SQS -> LAMBDA WORKER
+# 3. TRIGGER SQS Y API GATEWAY BASE
 # ==========================================
 
 resource "aws_lambda_event_source_mapping" "sqs_trigger" {
@@ -94,16 +83,11 @@ resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   batch_size       = 5
 }
 
-# ==========================================
-# 6. CONFIGURACIÓN DE API GATEWAY (HTTP API)
-# ==========================================
-
 resource "aws_apigatewayv2_api" "main" {
   name          = "${var.project_name}-api-${var.environment}"
   protocol_type = "HTTP"
-  
   cors_configuration {
-    allow_origins = ["*"] 
+    allow_origins = ["*"]
     allow_methods = ["POST", "GET", "OPTIONS"]
     allow_headers = ["content-type"]
   }
@@ -115,35 +99,44 @@ resource "aws_apigatewayv2_stage" "default" {
   auto_deploy = true
 }
 
-# Integraciones
-resource "aws_apigatewayv2_integration" "ingestion_integration" {
+# ==========================================
+# 4. INTEGRACIONES Y RUTAS (NOMBRES ORIGINALES)
+# ==========================================
+
+# Integración Ingesta (Original)
+resource "aws_apigatewayv2_integration" "lambda_integration" {
   api_id           = aws_apigatewayv2_api.main.id
   integration_type = "AWS_PROXY"
   integration_uri  = aws_lambda_function.ingestion.invoke_arn
 }
 
+# Integración Pago (Nueva)
 resource "aws_apigatewayv2_integration" "payment_integration" {
   api_id           = aws_apigatewayv2_api.main.id
   integration_type = "AWS_PROXY"
   integration_uri  = aws_lambda_function.payment.invoke_arn
 }
 
-# Rutas
+# Ruta Reserva (Original)
 resource "aws_apigatewayv2_route" "reserve_route" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /reserve"
-  target    = "integrations/${aws_apigatewayv2_integration.ingestion_integration.id}"
+  target    = "integrations/${aws_apigatewayv2_integration.lambda_integration.id}"
 }
 
+# Ruta Pago (Nueva)
 resource "aws_apigatewayv2_route" "payment_route" {
   api_id    = aws_apigatewayv2_api.main.id
   route_key = "POST /pay"
   target    = "integrations/${aws_apigatewayv2_integration.payment_integration.id}"
 }
 
-# Permisos para API Gateway
-resource "aws_lambda_permission" "api_gw_ingestion" {
-  statement_id  = "AllowExecutionFromAPIGatewayIngestion"
+# ==========================================
+# 5. PERMISOS (NOMBRES ORIGINALES)
+# ==========================================
+
+resource "aws_lambda_permission" "api_gw" {
+  statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.ingestion.function_name
   principal     = "apigateway.amazonaws.com"
@@ -159,7 +152,7 @@ resource "aws_lambda_permission" "api_gw_payment" {
 }
 
 # ==========================================
-# 7. STEP FUNCTIONS: FLUJO DE RESERVA
+# 6. STEP FUNCTIONS (SIN CAMBIOS)
 # ==========================================
 
 resource "aws_sfn_state_machine" "reservation_flow" {
