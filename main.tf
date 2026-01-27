@@ -17,6 +17,7 @@ module "security" {
   tickets_bucket_arn     = module.storage.tickets_bucket_arn
   reservations_table_arn = module.storage.reservations_table_arn
   inventory_table_arn    = module.storage.inventory_table_arn
+  reservation_queue_arn  = module.messaging.reservation_queue_arn
 }
 
 # 3. CAPA DE MENSAJERÍA (EVENTOS Y COLAS)
@@ -36,5 +37,6 @@ module "compute" {
   lambda_ingestion_role_arn = module.security.lambda_ingestion_role_arn
   inventory_table_name      = module.storage.inventory_table_name
   reservations_table_name   = module.storage.reservations_table_name
-  event_bus_name            = module.messaging.event_bus_name  # <-- Nueva conexión
+  event_bus_name            = module.messaging.event_bus_name 
+  reservation_queue_arn     = module.messaging.reservation_queue_arn # <-- Nueva conexión
 }
