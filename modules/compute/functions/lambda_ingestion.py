@@ -49,7 +49,7 @@ def handler(event, context):
             "status": "PENDING"
         }
 
-        # Enviamos el sobre al "Cartero" (EventBridge)
+        # Enviamos el sobre al (EventBridge)
         events.put_events(
             Entries=[{
                 'Source': 'com.cloudtickets.ingestion',

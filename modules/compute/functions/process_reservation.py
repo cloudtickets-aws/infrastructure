@@ -6,15 +6,20 @@ from botocore.exceptions import ClientError
 
 # Inicializar recursos
 dynamodb = boto3.resource('dynamodb')
+# Cliente para Step Functions
+sfn_client = boto3.client('stepfunctions')
+
 inventory_table = dynamodb.Table(os.environ['INVENTORY_TABLE'])
 reservations_table = dynamodb.Table(os.environ['RESERVATIONS_TABLE'])
+# ARN de la State Machine desde variables de entorno
+STATE_MACHINE_ARN = os.environ['STATE_MACHINE_ARN']
 
 def handler(event, context):
     for record in event['Records']:
         try:
-            # 1. Parsear el mensaje que viene de SQS (vía EventBridge)
+            # 1. Parsear el mensaje
             message_body = json.loads(record['body'])
-            detail = message_body['detail'] # Aquí vienen los datos de la ingesta
+            detail = message_body['detail']
             
             event_id = detail['eventId']
             seat_id = detail['seatId']
@@ -24,7 +29,6 @@ def handler(event, context):
             print(f"Procesando reserva {reservation_id} para el asiento {seat_id}")
 
             # 2. Transacción: Actualizar Inventario a RESERVED
-            # Solo si el estado actual es AVAILABLE (evita condiciones de carrera)
             try:
                 inventory_table.update_item(
                     Key={'EventID': event_id, 'SeatID': seat_id},
@@ -43,7 +47,6 @@ def handler(event, context):
                 raise e
 
             # 3. Crear el registro en la tabla de Reservas
-            # Calculamos el TTL (30 segundos para expirar en DynamoDB si queremos)
             expires_at = int(time.time()) + 30 
             
             reservations_table.put_item(
@@ -60,12 +63,20 @@ def handler(event, context):
 
             print(f"Reserva {reservation_id} creada exitosamente.")
 
-            # 4. TODO: Iniciar Step Functions aquí
-            # sf_client.start_execution(stateMachineArn=...)
+            # 4. INICIAR STEP FUNCTIONS (El Orquestador)
+            # Le pasamos el reservationId como entrada para que sepa qué vigilar
+            sfn_client.start_execution(
+                stateMachineArn=STATE_MACHINE_ARN,
+                name=f"exec-{reservation_id}-{int(time.time())}", # Nombre único para la ejecución
+                input=json.dumps({
+                    "reservationId": reservation_id
+                })
+            )
+            
+            print(f"Step Function iniciada para la reserva {reservation_id}")
 
         except Exception as e:
             print(f"Error procesando registro SQS: {str(e)}")
-            # Al lanzar la excepción, el mensaje vuelve a la cola SQS para reintento
             raise e
 
     return {"status": "SUCCESS"}

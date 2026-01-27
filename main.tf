@@ -38,5 +38,7 @@ module "compute" {
   inventory_table_name      = module.storage.inventory_table_name
   reservations_table_name   = module.storage.reservations_table_name
   event_bus_name            = module.messaging.event_bus_name 
-  reservation_queue_arn     = module.messaging.reservation_queue_arn # <-- Nueva conexión
+  reservation_queue_arn     = module.messaging.reservation_queue_arn
+  sfn_role_arn              = module.security.sfn_role_arn
+   # <-- Nueva conexión
 }

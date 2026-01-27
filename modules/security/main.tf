@@ -51,10 +51,10 @@ resource "aws_iam_role" "lambda_ingestion_role" {
   })
 }
 
-# Política de permisos para DynamoDB, CloudWatch Logs y EventBridge
+# Política unificada para Lambdas (Dynamo, Logs, EventBridge, SQS y Step Functions)
 resource "aws_iam_policy" "lambda_main_policy" {
   name        = "${var.project_name}-lambda-main-policy-${var.environment}"
-  description = "Permite interactuar con DynamoDB, Logs y publicar en EventBridge"
+  description = "Permisos para DynamoDB, Logs, EventBridge, SQS y Start Step Functions"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -89,7 +89,7 @@ resource "aws_iam_policy" "lambda_main_policy" {
           "events:PutEvents"
         ]
         Effect   = "Allow"
-        Resource = "*" # En producción se limita al ARN del Bus, por ahora "*" para facilitar el despliegue inicial
+        Resource = "*" 
       },
       {
         Sid    = "AllowSQSRead"
@@ -99,7 +99,15 @@ resource "aws_iam_policy" "lambda_main_policy" {
           "sqs:GetQueueAttributes"
         ]
         Effect   = "Allow"
-        Resource = var.reservation_queue_arn # Asegúrate de tener esta variable en el módulo
+        Resource = var.reservation_queue_arn
+      },
+      {
+        Sid    = "AllowStepFunctionsStart"
+        Action = [
+          "states:StartExecution"
+        ]
+        Effect   = "Allow"
+        Resource = "*" # En producción limitar al ARN de la State Machine
       }
     ]
   })
@@ -108,4 +116,66 @@ resource "aws_iam_policy" "lambda_main_policy" {
 resource "aws_iam_role_policy_attachment" "attach_main" {
   role       = aws_iam_role.lambda_ingestion_role.name
   policy_arn = aws_iam_policy.lambda_main_policy.arn
+}
+
+# ==========================================
+# 3. ROLES Y POLÍTICAS PARA STEP FUNCTIONS
+# ==========================================
+
+resource "aws_iam_role" "sfn_role" {
+  name = "${var.project_name}-sfn-role-${var.environment}"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "states.amazonaws.com"
+      }
+    }]
+  })
+}
+
+resource "aws_iam_policy" "sfn_main_policy" {
+  name        = "${var.project_name}-sfn-main-policy-${var.environment}"
+  description = "Permite a la Step Function interactuar con DynamoDB directamente"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowDynamoDirectAction"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:UpdateItem"
+        ]
+        Effect   = "Allow"
+        Resource = [
+          var.reservations_table_arn,
+          var.inventory_table_arn
+        ]
+      },
+      {
+        Sid    = "AllowSFNLogging"
+        Action = [
+          "logs:CreateLogDelivery",
+          "logs:GetLogDelivery",
+          "logs:UpdateLogDelivery",
+          "logs:DeleteLogDelivery",
+          "logs:ListLogDeliveries",
+          "logs:PutResourcePolicy",
+          "logs:DescribeResourcePolicies",
+          "logs:DescribeLogGroups"
+        ]
+        Effect   = "Allow"
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "attach_sfn_main" {
+  role       = aws_iam_role.sfn_role.name
+  policy_arn = aws_iam_policy.sfn_main_policy.arn
 }

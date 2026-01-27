@@ -18,3 +18,8 @@ variable "reservation_queue_arn" {
   description = "ARN de la cola SQS para permisos de IAM"
   type        = string
 }
+
+variable "sfn_role_arn" {
+  description = "ARN del rol de IAM para la Step Function"
+  type        = string
+}

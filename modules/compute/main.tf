@@ -53,6 +53,7 @@ resource "aws_lambda_function" "process_reservation" {
     variables = {
       INVENTORY_TABLE    = var.inventory_table_name
       RESERVATIONS_TABLE = var.reservations_table_name
+      STATE_MACHINE_ARN  = aws_sfn_state_machine.reservation_flow.arn
     }
   }
 }
@@ -106,4 +107,81 @@ resource "aws_lambda_permission" "api_gw" {
   function_name = aws_lambda_function.ingestion.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
+}
+
+# ==========================================
+# 6. STEP FUNCTIONS: FLUJO DE RESERVA
+# ==========================================
+
+resource "aws_sfn_state_machine" "reservation_flow" {
+  name     = "${var.project_name}-reserve-flow-${var.environment}"
+  role_arn = var.sfn_role_arn # Esta vendrá del output de security
+
+  definition = jsonencode({
+    Comment = "Espera 30s y libera el asiento si no se ha pagado"
+    StartAt = "Esperar30Segundos"
+    States = {
+      "Esperar30Segundos" = {
+        Type    = "Wait"
+        Seconds = 30
+        Next    = "VerificarStatus"
+      },
+      "VerificarStatus" = {
+        Type     = "Task"
+        Resource = "arn:aws:states:::dynamodb:getItem"
+        Parameters = {
+          TableName = var.reservations_table_name
+          Key = {
+            ReservationID = { "S.$" : "$.reservationId" }
+          }
+        }
+        ResultPath = "$.db_result"
+        Next       = "EstaPagado"
+      },
+      "EstaPagado" = {
+        Type = "Choice"
+        Choices = [
+          {
+            Variable     = "$.db_result.Item.status.S"
+            StringEquals = "CONFIRMED"
+            Next         = "FinalizarExito"
+          }
+        ]
+        Default = "LiberarAsiento"
+      },
+      "LiberarAsiento" = {
+        Type     = "Task"
+        Resource = "arn:aws:states:::dynamodb:updateItem"
+        Parameters = {
+          TableName = var.inventory_table_name
+          Key = {
+            # Ojo: Aquí la SFN lee los datos del GetItem anterior
+            EventID = { "S.$" : "$.db_result.Item.EventID.S" }
+            SeatID  = { "S.$" : "$.db_result.Item.SeatID.S" }
+          }
+          UpdateExpression = "SET #s = :available"
+          ExpressionAttributeNames  = { "#s" : "status" }
+          ExpressionAttributeValues = { ":available" : { "S" : "AVAILABLE" } }
+        }
+        Next = "MarcarExpirada"
+      },
+      "MarcarExpirada" = {
+        Type     = "Task"
+        Resource = "arn:aws:states:::dynamodb:updateItem"
+        Parameters = {
+          TableName = var.reservations_table_name
+          Key = {
+            ReservationID = { "S.$" : "$.reservationId" }
+          }
+          UpdateExpression = "SET #s = :expired"
+          ExpressionAttributeNames  = { "#s" : "status" }
+          ExpressionAttributeValues = { ":expired" : { "S" : "EXPIRED" } }
+        }
+        End = true
+      },
+      "FinalizarExito" = {
+        Type = "Succeed"
+      }
+    }
+  })
 }
