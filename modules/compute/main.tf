@@ -152,7 +152,7 @@ resource "aws_lambda_permission" "api_gw_payment" {
 }
 
 # ==========================================
-# 6. STEP FUNCTIONS (SIN CAMBIOS)
+# 6. STEP FUNCTIONS (CON RESULT PATH PARA EVITAR PÉRDIDA DE DATOS)
 # ==========================================
 
 resource "aws_sfn_state_machine" "reservation_flow" {
@@ -177,7 +177,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
             ReservationID = { "S.$" : "$.reservationId" }
           }
         }
-        ResultPath = "$.db_result"
+        ResultPath = "$.db_result" # Guarda el resultado sin borrar el input original
         Next       = "EstaPagado"
       },
       "EstaPagado" = {
@@ -204,6 +204,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
           ExpressionAttributeNames  = { "#s" : "status" }
           ExpressionAttributeValues = { ":available" : { "S" : "AVAILABLE" } }
         }
+        ResultPath = "$.update_inventory_result" # Evita que la respuesta de Dynamo borre el reservationId
         Next = "MarcarExpirada"
       },
       "MarcarExpirada" = {
@@ -218,6 +219,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
           ExpressionAttributeNames  = { "#s" : "status" }
           ExpressionAttributeValues = { ":expired" : { "S" : "EXPIRED" } }
         }
+        ResultPath = "$.update_reservation_result" # Limpieza final de datos
         End = true
       },
       "FinalizarExito" = {
