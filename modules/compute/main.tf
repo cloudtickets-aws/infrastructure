@@ -32,7 +32,6 @@ data "archive_file" "notification_zip" {
   output_path = "${path.module}/functions/lambda_notification.zip"
 }
 
-# NUEVA LAMBDA: Para guardar el Task Token
 data "archive_file" "save_token_zip" {
   type        = "zip"
   source_file = "${path.module}/functions/save_token.py"
@@ -123,7 +122,6 @@ resource "aws_lambda_function" "notification" {
   }
 }
 
-# RECURSO NUEVA LAMBDA: Save Token
 resource "aws_lambda_function" "save_token" {
   function_name    = "${var.project_name}-save-token-${var.environment}"
   role             = var.lambda_ingestion_role_arn
@@ -241,7 +239,6 @@ resource "aws_lambda_permission" "allow_sqs_notification" {
   source_arn    = var.notification_queue_arn
 }
 
-# Permiso para que Step Functions invoque la nueva Lambda de Token
 resource "aws_lambda_permission" "allow_sfn_save_token" {
   statement_id  = "AllowExecutionFromStepFunctions"
   action        = "lambda:InvokeFunction"
@@ -268,7 +265,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
         Resource = "arn:aws:states:::lambda:invoke.waitForTaskToken"
         TimeoutSeconds = 30 
         Parameters = {
-          FunctionName = aws_lambda_function.save_token.arn # CAMBIO: Ahora llama a save_token
+          FunctionName = aws_lambda_function.save_token.arn
           Payload = {
             "reservationId.$" = "$.reservationId"
             "taskToken.$"     = "$$.Task.Token"
@@ -276,6 +273,8 @@ resource "aws_sfn_state_machine" "reservation_flow" {
         }
         Catch = [ {
           ErrorEquals = ["States.Timeout"]
+          # SOLUCIÓN: Evita que el error sobrescriba el reservationId del input
+          ResultPath  = "$.error_info" 
           Next        = "VerificarStatusFinal" 
         } ]
         Next = "FinalizarExito"
