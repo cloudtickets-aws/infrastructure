@@ -32,16 +32,22 @@ data "archive_file" "notification_zip" {
   output_path = "${path.module}/functions/lambda_notification.zip"
 }
 
+# NUEVA LAMBDA: Para guardar el Task Token
+data "archive_file" "save_token_zip" {
+  type        = "zip"
+  source_file = "${path.module}/functions/save_token.py"
+  output_path = "${path.module}/functions/save_token.zip"
+}
+
 # ==========================================
 # 2. CONFIGURACIÓN DE LAMBDAS (CAPA LÓGICA)
 # ==========================================
 
-# Lambda: Ingesta de API
 resource "aws_lambda_function" "ingestion" {
-  function_name = "${var.project_name}-ingestion-${var.environment}"
-  role          = var.lambda_ingestion_role_arn
-  handler       = "lambda_ingestion.handler"
-  runtime       = "python3.13"
+  function_name    = "${var.project_name}-ingestion-${var.environment}"
+  role             = var.lambda_ingestion_role_arn
+  handler          = "lambda_ingestion.handler"
+  runtime          = "python3.13"
   filename         = data.archive_file.ingestion_zip.output_path
   source_code_hash = data.archive_file.ingestion_zip.output_base64sha256
 
@@ -54,12 +60,11 @@ resource "aws_lambda_function" "ingestion" {
   }
 }
 
-# Lambda: Procesador de SQS a Step Functions
 resource "aws_lambda_function" "process_reservation" {
-  function_name = "${var.project_name}-process-reservation-${var.environment}"
-  role          = var.lambda_ingestion_role_arn
-  handler       = "process_reservation.handler"
-  runtime       = "python3.13"
+  function_name    = "${var.project_name}-process-reservation-${var.environment}"
+  role             = var.lambda_ingestion_role_arn
+  handler          = "process_reservation.handler"
+  runtime          = "python3.13"
   filename         = data.archive_file.process_zip.output_path
   source_code_hash = data.archive_file.process_zip.output_base64sha256
 
@@ -72,12 +77,11 @@ resource "aws_lambda_function" "process_reservation" {
   }
 }
 
-# Lambda: Simulador de Pago
 resource "aws_lambda_function" "payment" {
-  function_name = "${var.project_name}-payment-${var.environment}"
-  role          = var.lambda_ingestion_role_arn
-  handler       = "lambda_payment.handler"
-  runtime       = "python3.13"
+  function_name    = "${var.project_name}-payment-${var.environment}"
+  role             = var.lambda_ingestion_role_arn
+  handler          = "lambda_payment.handler"
+  runtime          = "python3.13"
   filename         = data.archive_file.payment_zip.output_path
   source_code_hash = data.archive_file.payment_zip.output_base64sha256
 
@@ -88,12 +92,11 @@ resource "aws_lambda_function" "payment" {
   }
 }
 
-# Lambda: Generador de PDF
 resource "aws_lambda_function" "pdf_generator" {
-  function_name = "${var.project_name}-pdf-generator-${var.environment}"
-  role          = var.lambda_ingestion_role_arn
-  handler       = "pdf_generator.handler"
-  runtime       = "python3.13"
+  function_name    = "${var.project_name}-pdf-generator-${var.environment}"
+  role             = var.lambda_ingestion_role_arn
+  handler          = "pdf_generator.handler"
+  runtime          = "python3.13"
   filename         = data.archive_file.pdf_generator_zip.output_path
   source_code_hash = data.archive_file.pdf_generator_zip.output_base64sha256
 
@@ -105,14 +108,29 @@ resource "aws_lambda_function" "pdf_generator" {
   }
 }
 
-# Lambda: Notificaciones (Email/SES)
 resource "aws_lambda_function" "notification" {
-  function_name = "${var.project_name}-notification-${var.environment}"
-  role          = var.lambda_ingestion_role_arn
-  handler       = "lambda_notification.handler"
-  runtime       = "python3.13"
+  function_name    = "${var.project_name}-notification-${var.environment}"
+  role             = var.lambda_ingestion_role_arn
+  handler          = "lambda_notification.handler"
+  runtime          = "python3.13"
   filename         = data.archive_file.notification_zip.output_path
   source_code_hash = data.archive_file.notification_zip.output_base64sha256
+
+  environment {
+    variables = {
+      RESERVATIONS_TABLE = var.reservations_table_name
+    }
+  }
+}
+
+# RECURSO NUEVA LAMBDA: Save Token
+resource "aws_lambda_function" "save_token" {
+  function_name    = "${var.project_name}-save-token-${var.environment}"
+  role             = var.lambda_ingestion_role_arn
+  handler          = "save_token.handler"
+  runtime          = "python3.13"
+  filename         = data.archive_file.save_token_zip.output_path
+  source_code_hash = data.archive_file.save_token_zip.output_base64sha256
 
   environment {
     variables = {
@@ -125,21 +143,18 @@ resource "aws_lambda_function" "notification" {
 # 3. TRIGGERS SQS (CONEXIÓN DE COLAS)
 # ==========================================
 
-# Trigger: Cola de Reservas -> Procesador
 resource "aws_lambda_event_source_mapping" "sqs_trigger" {
   event_source_arn = var.reservation_queue_arn
   function_name    = aws_lambda_function.process_reservation.arn
   batch_size       = 5
 }
 
-# Trigger: Cola de PDF -> Generador
 resource "aws_lambda_event_source_mapping" "pdf_trigger" {
   event_source_arn = var.pdf_queue_arn
   function_name    = aws_lambda_function.pdf_generator.arn
   batch_size       = 1
 }
 
-# Trigger: Cola de Notificación -> Notificador
 resource "aws_lambda_event_source_mapping" "notification_trigger" {
   event_source_arn = var.notification_queue_arn
   function_name    = aws_lambda_function.notification.arn
@@ -210,13 +225,12 @@ resource "aws_lambda_permission" "api_gw_payment" {
   source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
 }
 
-# Permisos para que SQS invoque Lambdas
 resource "aws_lambda_permission" "allow_sqs_pdf" {
   statement_id  = "AllowExecutionFromSQSPDF"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.pdf_generator.function_name
   principal     = "sqs.amazonaws.com"
-  source_arn     = var.pdf_queue_arn
+  source_arn    = var.pdf_queue_arn
 }
 
 resource "aws_lambda_permission" "allow_sqs_notification" {
@@ -224,11 +238,20 @@ resource "aws_lambda_permission" "allow_sqs_notification" {
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.notification.function_name
   principal     = "sqs.amazonaws.com"
-  source_arn     = var.notification_queue_arn
+  source_arn    = var.notification_queue_arn
+}
+
+# Permiso para que Step Functions invoque la nueva Lambda de Token
+resource "aws_lambda_permission" "allow_sfn_save_token" {
+  statement_id  = "AllowExecutionFromStepFunctions"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.save_token.function_name
+  principal     = "states.amazonaws.com"
+  source_arn    = aws_sfn_state_machine.reservation_flow.arn
 }
 
 # ==========================================
-# 6. STEP FUNCTIONS (ORQUESTADOR)
+# 6. STEP FUNCTIONS (ORQUESTADOR REACTIVO)
 # ==========================================
 
 resource "aws_sfn_state_machine" "reservation_flow" {
@@ -236,15 +259,29 @@ resource "aws_sfn_state_machine" "reservation_flow" {
   role_arn = var.sfn_role_arn
 
   definition = jsonencode({
-    Comment = "Espera 30s y libera el asiento si no se ha pagado"
-    StartAt = "Esperar30Segundos"
+    Comment = "Espera señal de pago o expira a los 30 segundos"
+    StartAt = "EsperarPago"
     States = {
-      "Esperar30Segundos" = {
-        Type    = "Wait"
-        Seconds = 30
-        Next    = "VerificarStatus"
+      
+      "EsperarPago" = {
+        Type     = "Task"
+        Resource = "arn:aws:states:::lambda:invoke.waitForTaskToken"
+        TimeoutSeconds = 30 
+        Parameters = {
+          FunctionName = aws_lambda_function.save_token.arn # CAMBIO: Ahora llama a save_token
+          Payload = {
+            "reservationId.$" = "$.reservationId"
+            "taskToken.$"     = "$$.Task.Token"
+          }
+        }
+        Catch = [ {
+          ErrorEquals = ["States.Timeout"]
+          Next        = "VerificarStatusFinal" 
+        } ]
+        Next = "FinalizarExito"
       },
-      "VerificarStatus" = {
+
+      "VerificarStatusFinal" = {
         Type     = "Task"
         Resource = "arn:aws:states:::dynamodb:getItem"
         Parameters = {
@@ -256,6 +293,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
         ResultPath = "$.db_result" 
         Next       = "EstaPagado"
       },
+
       "EstaPagado" = {
         Type = "Choice"
         Choices = [
@@ -267,6 +305,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
         ]
         Default = "LiberarAsiento"
       },
+
       "LiberarAsiento" = {
         Type     = "Task"
         Resource = "arn:aws:states:::dynamodb:updateItem"
@@ -276,13 +315,13 @@ resource "aws_sfn_state_machine" "reservation_flow" {
             EventID = { "S.$" : "$.db_result.Item.EventID.S" }
             SeatID  = { "S.$" : "$.db_result.Item.SeatID.S" }
           }
-          UpdateExpression = "SET #s = :available"
+          UpdateExpression          = "SET #s = :available"
           ExpressionAttributeNames  = { "#s" : "status" }
           ExpressionAttributeValues = { ":available" : { "S" : "AVAILABLE" } }
         }
-        ResultPath = "$.update_inventory_result"
         Next = "MarcarExpirada"
       },
+
       "MarcarExpirada" = {
         Type     = "Task"
         Resource = "arn:aws:states:::dynamodb:updateItem"
@@ -291,13 +330,13 @@ resource "aws_sfn_state_machine" "reservation_flow" {
           Key = {
             ReservationID = { "S.$" : "$.reservationId" }
           }
-          UpdateExpression = "SET #s = :expired"
+          UpdateExpression          = "SET #s = :expired"
           ExpressionAttributeNames  = { "#s" : "status" }
           ExpressionAttributeValues = { ":expired" : { "S" : "EXPIRED" } }
         }
-        ResultPath = "$.update_reservation_result"
         End = true
       },
+
       "FinalizarExito" = {
         Type     = "Task"
         Resource = "arn:aws:states:::events:putEvents"
@@ -308,9 +347,9 @@ resource "aws_sfn_state_machine" "reservation_flow" {
                 "reservationId.$" = "$.reservationId",
                 "status"          = "CONFIRMED"
               },
-              DetailType = "ticket.confirmed",
+              DetailType   = "ticket.confirmed",
               EventBusName = var.event_bus_name,
-              Source     = "cloudticket.orchestrator"
+              Source       = "cloudticket.orchestrator"
             }
           ]
         }

@@ -51,10 +51,9 @@ resource "aws_iam_role" "lambda_ingestion_role" {
   })
 }
 
-# Política unificada para Lambdas (Dynamo, Logs, EventBridge, SQS, Step Functions, S3 y SES)
 resource "aws_iam_policy" "lambda_main_policy" {
   name        = "${var.project_name}-lambda-main-policy-${var.environment}"
-  description = "Permisos para DynamoDB, Logs, EventBridge, SQS, Start Step Functions, S3 y SES"
+  description = "Permisos para DynamoDB, Logs, EventBridge, SQS, Step Functions Control, S3 y SES"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -99,12 +98,14 @@ resource "aws_iam_policy" "lambda_main_policy" {
           "sqs:GetQueueAttributes"
         ]
         Effect   = "Allow"
-        Resource = "*" # Ajustado para permitir lectura de múltiples colas
+        Resource = "*" 
       },
       {
-        Sid    = "AllowStepFunctionsStart"
+        Sid    = "AllowStepFunctionsControl"
         Action = [
-          "states:StartExecution"
+          "states:StartExecution",
+          "states:SendTaskSuccess",
+          "states:SendTaskFailure"
         ]
         Effect   = "Allow"
         Resource = "*" 
@@ -151,7 +152,7 @@ resource "aws_iam_role" "sfn_role" {
 
 resource "aws_iam_policy" "sfn_main_policy" {
   name        = "${var.project_name}-sfn-main-policy-${var.environment}"
-  description = "Permite a la Step Function interactuar con DynamoDB y EventBridge"
+  description = "Permite a la Step Function interactuar con DynamoDB, EventBridge y Lambdas"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -188,6 +189,12 @@ resource "aws_iam_policy" "sfn_main_policy" {
         Action   = "events:PutEvents"
         Effect   = "Allow"
         Resource = "*"
+      },
+      {
+        Sid      = "AllowSFNInvokeLambda"
+        Action   = "lambda:InvokeFunction"
+        Effect   = "Allow"
+        Resource = "*" # Permite invocar save_token y verificarStatus si fuera necesario
       }
     ]
   })
