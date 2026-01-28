@@ -15,6 +15,7 @@ def handler(event, context):
             file_name = f"ticket-{res_id}.pdf"
             local_path = f"/tmp/{file_name}"
 
+            # --- CONFIGURACIÓN INICIAL ---
             pdf = FPDF()
             pdf.add_page()
             
@@ -25,21 +26,21 @@ def handler(event, context):
             pdf.set_text_color(255, 255, 255)
             pdf.set_font("Arial", 'B', 24)
             pdf.set_xy(0, 15)
-            pdf.cell(0, 10, "AWS CLOUD TOUR 2026", ln=True, align="C")
+            # Usamos encode('latin-1', 'replace').decode('latin-1') para asegurar compatibilidad
+            pdf.cell(0, 10, "AWS CLOUD TOUR 2026".encode('latin-1', 'replace').decode('latin-1'), ln=True, align="C")
             
             pdf.set_font("Arial", '', 10)
-            pdf.cell(0, 8, "EN VIVO • EVENTO EXCLUSIVO", ln=True, align="C")
+            pdf.cell(0, 8, "EN VIVO | EVENTO EXCLUSIVO".encode('latin-1', 'replace').decode('latin-1'), ln=True, align="C")
             
             # --- UBICACIÓN DESTACADA ---
             pdf.set_font("Arial", 'B', 12)
             pdf.set_text_color(255, 153, 0) # Naranja AWS
-            pdf.cell(0, 10, "LIBERTADORES STADIUM - BOGOTÁ", ln=True, align="C")
+            pdf.cell(0, 10, "LIBERTADORES STADIUM - BOGOTÁ".encode('latin-1', 'replace').decode('latin-1'), ln=True, align="C")
 
             # --- CÓDIGO DE BARRAS DINÁMICO ---
             pdf.set_fill_color(0, 0, 0)
             start_x = 75
-            # Generamos barras basadas en los caracteres del reservationId
-            for i, char in enumerate(res_id):
+            for i, char in enumerate(str(res_id)):
                 width = 0.4 if ord(char) % 2 == 0 else 1.1
                 pdf.rect(start_x + (i * 1.8), 60, width, 12, 'F')
             
@@ -48,7 +49,7 @@ def handler(event, context):
             pdf.set_font("Courier", 'B', 9)
             pdf.cell(0, 5, f"{res_id}", ln=True, align="C")
 
-            # --- SECCIÓN DE ASIENTOS (TIPO ESTADIO) ---
+            # --- SECCIÓN DE ASIENTOS ---
             pdf.ln(10)
             pdf.set_fill_color(240, 242, 245)
             pdf.rect(10, 85, 190, 25, 'F')
@@ -72,6 +73,7 @@ def handler(event, context):
             pdf.set_line_width(0.5)
             pdf.line(10, 120, 200, 120)
             
+            # Lista con tildes
             details = [
                 ("FECHA:", "SÁBADO, 29 DE FEBRERO 2026"),
                 ("HORA:", "17:00 (APERTURA 15:30)"),
@@ -82,22 +84,27 @@ def handler(event, context):
             pdf.set_xy(10, 125)
             for label, value in details:
                 pdf.set_font("Arial", 'B', 10)
-                pdf.cell(40, 8, label)
+                pdf.cell(40, 8, label.encode('latin-1', 'replace').decode('latin-1'))
                 pdf.set_font("Arial", '', 10)
                 if "CONFIRMADA" in value:
-                    pdf.set_text_color(39, 174, 96) # Verde
-                pdf.cell(0, 8, value, ln=True)
+                    pdf.set_text_color(39, 174, 96)
+                pdf.cell(0, 8, value.encode('latin-1', 'replace').decode('latin-1'), ln=True)
                 pdf.set_text_color(0, 0, 0)
 
-            # --- FOOTER / TÉRMINOS ---
+            # --- FOOTER ---
             pdf.set_xy(10, 170)
             pdf.set_font("Arial", 'I', 8)
             pdf.set_text_color(150, 150, 150)
-            pdf.multi_cell(190, 4, "Escanea este código en los puntos de control del Estadio Libertadores. \nEste evento es propiedad de CloudTickets en colaboración con AWS. \nNo se permite el ingreso de alimentos ni cámaras profesionales.", align="C")
+            footer_text = (
+                "Escanea este código en los puntos de control del Estadio Libertadores.\n"
+                "Este evento es propiedad de CloudTickets en colaboración con AWS.\n"
+                "No se permite el ingreso de alimentos ni cámaras profesionales."
+            )
+            pdf.multi_cell(190, 4, footer_text.encode('latin-1', 'replace').decode('latin-1'), align="C")
 
+            # --- SALIDA ---
             pdf.output(local_path)
 
-            # --- UPLOAD ---
             with open(local_path, "rb") as f:
                 s3.put_object(
                     Bucket=os.environ['TICKETS_BUCKET'],
