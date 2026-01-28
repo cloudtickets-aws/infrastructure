@@ -16,7 +16,7 @@ resource "aws_sqs_queue" "reservation_queue" {
   visibility_timeout_seconds = 60
 }
 
-# Cola 2: Generación de PDF
+# Cola 2: Generación de PDF's
 resource "aws_sqs_queue" "pdf_queue" {
   name                       = "${var.project_name}-pdf-queue-${var.environment}"
   message_retention_seconds  = 86400
@@ -70,7 +70,7 @@ resource "aws_cloudwatch_event_rule" "pdf_generated_rule" {
 # 4. POLÍTICAS DE ACCESO SQS (PERMISOS PARA EVENTBRIDGE)
 # ==============================================================================
 
-# Política para la cola de Reservas
+# Política para la cola de Reservas (Ingestión)
 resource "aws_sqs_queue_policy" "allow_eventbridge" {
   queue_url = aws_sqs_queue.reservation_queue.id
   policy = jsonencode({
@@ -87,29 +87,35 @@ resource "aws_sqs_queue_policy" "allow_eventbridge" {
   })
 }
 
-# Política unificada para colas de PDF y Notificaciones (LO NUEVO)
-resource "aws_sqs_queue_policy" "allow_eventbridge_outputs" {
-  for_each = {
-    pdf          = aws_sqs_queue.pdf_queue.id
-    notification = aws_sqs_queue.notification_queue.id
-  }
-
-  queue_url = each.value
-
+# Política para la cola de PDF
+resource "aws_sqs_queue_policy" "allow_eventbridge_pdf" {
+  queue_url = aws_sqs_queue.pdf_queue.id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
       Effect    = "Allow"
       Principal = { Service = "events.amazonaws.com" }
       Action    = "sqs:SendMessage"
-      Resource  = "*"
+      Resource  = aws_sqs_queue.pdf_queue.arn
       Condition = {
-        ArnAny = {
-          "aws:SourceArn": [
-            aws_cloudwatch_event_rule.ticket_confirmed_rule.arn,
-            aws_cloudwatch_event_rule.pdf_generated_rule.arn
-          ]
-        }
+        ArnEquals = { "aws:SourceArn": aws_cloudwatch_event_rule.ticket_confirmed_rule.arn }
+      }
+    }]
+  })
+}
+
+# Política para la cola de Notificaciones
+resource "aws_sqs_queue_policy" "allow_eventbridge_notifications" {
+  queue_url = aws_sqs_queue.notification_queue.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "events.amazonaws.com" }
+      Action    = "sqs:SendMessage"
+      Resource  = aws_sqs_queue.notification_queue.arn
+      Condition = {
+        ArnEquals = { "aws:SourceArn": aws_cloudwatch_event_rule.pdf_generated_rule.arn }
       }
     }]
   })
