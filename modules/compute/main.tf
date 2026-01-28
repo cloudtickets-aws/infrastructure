@@ -273,8 +273,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
         }
         Catch = [ {
           ErrorEquals = ["States.Timeout"]
-          # SOLUCIÓN: Evita que el error sobrescriba el reservationId del input
-          ResultPath  = "$.error_info" 
+          ResultPath  = "$.error_info" # Mantiene reservationId vivo
           Next        = "VerificarStatusFinal" 
         } ]
         Next = "FinalizarExito"
@@ -289,7 +288,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
             ReservationID = { "S.$" : "$.reservationId" }
           }
         }
-        ResultPath = "$.db_result" 
+        ResultPath = "$.db_result" # Evita borrar reservationId con la respuesta de Dynamo
         Next       = "EstaPagado"
       },
 
@@ -318,6 +317,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
           ExpressionAttributeNames  = { "#s" : "status" }
           ExpressionAttributeValues = { ":available" : { "S" : "AVAILABLE" } }
         }
+        ResultPath = "$.liberacion_metadata" # FIX: Evita que los metadatos HTTP borren el reservationId
         Next = "MarcarExpirada"
       },
 
