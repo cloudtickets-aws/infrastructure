@@ -12,3 +12,13 @@ output "reservation_queue_arn" {
   description = "ARN de la cola SQS de reservas"
   value       = aws_sqs_queue.reservation_queue.arn
 }
+
+output "pdf_queue_arn" {
+  description = "ARN de la cola SQS para generación de PDFs"
+  value       = aws_sqs_queue.pdf_queue.arn
+}
+
+output "notification_queue_arn" {
+  description = "ARN de la cola SQS de reservas"
+  value       = aws_sqs_queue.notification_queue.arn
+}

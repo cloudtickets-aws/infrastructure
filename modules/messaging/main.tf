@@ -5,8 +5,8 @@ resource "aws_cloudwatch_event_bus" "project_bus" {
 
 # 2. Cola SQS para Procesamiento de Reservas
 resource "aws_sqs_queue" "reservation_queue" {
-  name                      = "${var.project_name}-reservation-queue-${var.environment}"
-  message_retention_seconds = 86400 # 1 día
+  name                       = "${var.project_name}-reservation-queue-${var.environment}"
+  message_retention_seconds  = 86400 # 1 día
   visibility_timeout_seconds = 60    # Tiempo para que la Lambda procese sin que el mensaje reaparezca
 }
 
@@ -43,4 +43,61 @@ resource "aws_sqs_queue_policy" "allow_eventbridge" {
       }
     }]
   })
+}
+
+# ==========================================
+# 6. COLAS ADICIONALES (PDF Y NOTIFICACIONES)
+# ==========================================
+
+resource "aws_sqs_queue" "pdf_queue" {
+  name                       = "${var.project_name}-pdf-queue-${var.environment}"
+  message_retention_seconds  = 86400
+  visibility_timeout_seconds = 120 
+}
+
+resource "aws_sqs_queue" "notification_queue" {
+  name                       = "${var.project_name}-notification-queue-${var.environment}"
+  message_retention_seconds  = 86400
+}
+
+# ==========================================
+# 7. REGLAS PARA FLUJO DE SALIDA
+# ==========================================
+
+# Regla: Ticket Confirmado -> Generar PDF
+resource "aws_cloudwatch_event_rule" "ticket_confirmed_rule" {
+  name           = "ticket-confirmed-rule"
+  description    = "Captura confirmaciones de Step Functions para generar PDF"
+  event_bus_name = aws_cloudwatch_event_bus.project_bus.name
+
+  event_pattern = jsonencode({
+    "detail-type": ["ticket.confirmed"]
+  })
+}
+
+# Regla: PDF Generado -> Enviar Notificación
+resource "aws_cloudwatch_event_rule" "pdf_generated_rule" {
+  name           = "pdf-generated-rule"
+  description    = "Captura cuando el PDF está listo para enviar email"
+  event_bus_name = aws_cloudwatch_event_bus.project_bus.name
+
+  event_pattern = jsonencode({
+    "detail-type": ["pdf.generated"]
+  })
+}
+
+# ==========================================
+# 8. TARGETS PARA FLUJO DE SALIDA
+# ==========================================
+
+resource "aws_cloudwatch_event_target" "pdf_target" {
+  rule           = aws_cloudwatch_event_rule.ticket_confirmed_rule.name
+  event_bus_name = aws_cloudwatch_event_bus.project_bus.name
+  arn            = aws_sqs_queue.pdf_queue.arn
+}
+
+resource "aws_cloudwatch_event_target" "notification_target" {
+  rule           = aws_cloudwatch_event_rule.pdf_generated_rule.name
+  event_bus_name = aws_cloudwatch_event_bus.project_bus.name
+  arn            = aws_sqs_queue.notification_queue.arn
 }

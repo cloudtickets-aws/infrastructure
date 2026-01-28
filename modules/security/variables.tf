@@ -40,3 +40,8 @@ variable "reservation_queue_arn" {
   description = "ARN de la cola SQS para permisos de IAM"
   type        = string
 }
+
+variable "pdf_queue_arn" {
+  description = "ARN de la cola de PDF para permisos de IAM"
+  type        = string
+}
