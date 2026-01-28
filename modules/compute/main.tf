@@ -53,6 +53,12 @@ resource "aws_lambda_layer_version" "fpdf_layer" {
   source_code_hash    = data.archive_file.fpdf_layer_zip_data.output_base64sha256
 }
 
+data "archive_file" "get_ticket_url_zip" {
+  type        = "zip"
+  source_file = "${path.module}/functions/get_ticket_url.py"
+  output_path = "${path.module}/functions/get_ticket_url.zip"
+}
+
 # ==========================================
 # 2. CONFIGURACIÓN DE LAMBDAS (CAPA LÓGICA)
 # ==========================================
@@ -156,6 +162,20 @@ resource "aws_lambda_function" "save_token" {
   }
 }
 
+resource "aws_lambda_function" "get_ticket_url" {
+  function_name    = "${var.project_name}-get-ticket-url-${var.environment}"
+  role             = var.lambda_ingestion_role_arn
+  handler          = "get_ticket_url.handler"
+  runtime          = "python3.13"
+  filename         = data.archive_file.get_ticket_url_zip.output_path
+  source_code_hash = data.archive_file.get_ticket_url_zip.output_base64sha256
+
+  environment {
+    variables = {
+      TICKETS_BUCKET = var.tickets_bucket_name
+    }
+  }
+}
 # ==========================================
 # 3. TRIGGERS SQS (CONEXIÓN DE COLAS)
 # ==========================================
@@ -222,6 +242,21 @@ resource "aws_apigatewayv2_route" "payment_route" {
   target    = "integrations/${aws_apigatewayv2_integration.payment_integration.id}"
 }
 
+resource "aws_apigatewayv2_integration" "get_url_integration" {
+  api_id           = aws_apigatewayv2_api.main.id
+  integration_type = "AWS_PROXY"
+  integration_uri  = aws_lambda_function.get_ticket_url.invoke_arn
+}
+
+# 4. Crear la Ruta GET para el Frontend
+resource "aws_apigatewayv2_route" "get_url_route" {
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "GET /get-ticket-url"
+  target    = "integrations/${aws_apigatewayv2_integration.get_url_integration.id}"
+}
+
+# 5. Permiso de Invocación
+
 # ==========================================
 # 5. PERMISOS DE INVOCACIÓN (LAMBDA PERMISSIONS)
 # ==========================================
@@ -264,6 +299,14 @@ resource "aws_lambda_permission" "allow_sfn_save_token" {
   function_name = aws_lambda_function.save_token.function_name
   principal     = "states.amazonaws.com"
   source_arn    = aws_sfn_state_machine.reservation_flow.arn
+}
+
+resource "aws_lambda_permission" "api_gw_get_url" {
+  statement_id  = "AllowExecutionFromAPIGatewayGetUrl"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.get_ticket_url.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.main.execution_arn}/*/*"
 }
 
 # ==========================================

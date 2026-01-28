@@ -25,6 +25,20 @@ resource "aws_s3_bucket" "tickets_storage" {
   bucket = "${var.project_name}-tickets-${var.environment}"
 }
 
+# --- NUEVA CONFIGURACIÓN: CORS PARA DESCARGAS ---
+# Permite que el navegador descargue los PDFs desde la App de React
+resource "aws_s3_bucket_cors_configuration" "tickets_cors" {
+  bucket = aws_s3_bucket.tickets_storage.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET", "HEAD"]
+    allowed_origins = ["*"] # En producción, cámbialo por tu dominio real
+    expose_headers  = ["Content-Disposition", "Content-Length", "ETag"]
+    max_age_seconds = 3000
+  }
+}
+
 # Red de Distribución (CloudFront) para el Frontend
 resource "aws_cloudfront_distribution" "s3_distribution" {
   origin {

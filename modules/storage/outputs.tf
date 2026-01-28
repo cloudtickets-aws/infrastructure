@@ -14,6 +14,11 @@ output "frontend_bucket_arn" {
 }
 
 # Datos del Bucket de Tickets (PDFs)
+output "tickets_bucket_id" {
+  description = "ID del bucket de tickets (Nombre)"
+  value       = aws_s3_bucket.tickets_storage.id
+}
+
 output "tickets_bucket_name" {
   description = "Nombre del bucket donde se guardan los tickets"
   value       = aws_s3_bucket.tickets_storage.id
