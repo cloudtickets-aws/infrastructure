@@ -1,5 +1,5 @@
 # ==========================================
-# 1. PREPARACIÓN DEL CÓDIGO (ZIPs individuales)
+# 1. PREPARACIÓN DEL CÓDIGO Y CAPAS
 # ==========================================
 
 data "archive_file" "ingestion_zip" {
@@ -36,6 +36,21 @@ data "archive_file" "save_token_zip" {
   type        = "zip"
   source_file = "${path.module}/functions/save_token.py"
   output_path = "${path.module}/functions/save_token.zip"
+}
+
+# --- AUTOMATIZACIÓN DE LA CAPA (LAYER) ---
+# Terraform comprime automáticamente el contenido de tu carpeta layers
+data "archive_file" "fpdf_layer_zip_data" {
+  type        = "zip"
+  source_dir  = "${path.module}/../../layers/fpdf2" 
+  output_path = "${path.module}/fpdf_layer.zip"
+}
+
+resource "aws_lambda_layer_version" "fpdf_layer" {
+  filename            = data.archive_file.fpdf_layer_zip_data.output_path
+  layer_name          = "${var.project_name}-fpdf2-layer-${var.environment}"
+  compatible_runtimes = ["python3.13"]
+  source_code_hash    = data.archive_file.fpdf_layer_zip_data.output_base64sha256
 }
 
 # ==========================================
@@ -98,6 +113,10 @@ resource "aws_lambda_function" "pdf_generator" {
   runtime          = "python3.13"
   filename         = data.archive_file.pdf_generator_zip.output_path
   source_code_hash = data.archive_file.pdf_generator_zip.output_base64sha256
+  
+  # Uso de la capa de fpdf2 y aumento de timeout
+  layers           = [aws_lambda_layer_version.fpdf_layer.arn]
+  timeout          = 30
 
   environment {
     variables = {
@@ -273,7 +292,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
         }
         Catch = [ {
           ErrorEquals = ["States.Timeout"]
-          ResultPath  = "$.error_info" # Mantiene reservationId vivo
+          ResultPath  = "$.error_info"
           Next        = "VerificarStatusFinal" 
         } ]
         Next = "FinalizarExito"
@@ -288,7 +307,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
             ReservationID = { "S.$" : "$.reservationId" }
           }
         }
-        ResultPath = "$.db_result" # Evita borrar reservationId con la respuesta de Dynamo
+        ResultPath = "$.db_result"
         Next       = "EstaPagado"
       },
 
@@ -317,7 +336,7 @@ resource "aws_sfn_state_machine" "reservation_flow" {
           ExpressionAttributeNames  = { "#s" : "status" }
           ExpressionAttributeValues = { ":available" : { "S" : "AVAILABLE" } }
         }
-        ResultPath = "$.liberacion_metadata" # FIX: Evita que los metadatos HTTP borren el reservationId
+        ResultPath = "$.liberacion_metadata"
         Next = "MarcarExpirada"
       },
 
