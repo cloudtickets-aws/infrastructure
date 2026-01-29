@@ -251,7 +251,7 @@ resource "aws_apigatewayv2_integration" "get_url_integration" {
 # 4. Crear la Ruta GET para el Frontend
 resource "aws_apigatewayv2_route" "get_url_route" {
   api_id    = aws_apigatewayv2_api.main.id
-  route_key = "GET /get-ticket-url"
+  route_key = "GET /get-ticket"
   target    = "integrations/${aws_apigatewayv2_integration.get_url_integration.id}"
 }
 
