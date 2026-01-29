@@ -16,7 +16,7 @@ def handler(event, context):
         # 1. Parsear datos de entrada desde el cuerpo de la petición (API Gateway)
         body = json.loads(event.get('body', '{}'))
         seat_id = body.get('seat_id')
-        event_id = body.get('event_id', 'CONCIERTO_2026') # Valor por defecto para pruebas
+        event_id = body.get('event_id', 'AWS_CLOUD_TOUR') # Valor por defecto para pruebas
         email = body.get('email')
         user_id = body.get('user_id', 'user_default')
 
