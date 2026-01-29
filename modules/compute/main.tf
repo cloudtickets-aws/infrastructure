@@ -310,7 +310,7 @@ resource "aws_lambda_permission" "api_gw_get_url" {
 }
 
 # ==========================================
-# 6. STEP FUNCTIONS (ORQUESTADOR REACTIVO)
+# 6. STEP FUNCTIONS (ORQUESTADOR - REACTIVO)
 # ==========================================
 
 resource "aws_sfn_state_machine" "reservation_flow" {
