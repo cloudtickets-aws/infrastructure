@@ -40,6 +40,7 @@ resource "aws_cloudwatch_event_rule" "reservation_requested_rule" {
   event_bus_name = aws_cloudwatch_event_bus.project_bus.name
 
   event_pattern = jsonencode({
+    "source":      ["com.cloudtickets.ingestion"],
     "detail-type": ["reservation.requested"]
   })
 }

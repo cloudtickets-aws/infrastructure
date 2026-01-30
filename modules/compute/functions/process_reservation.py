@@ -8,33 +8,29 @@ from botocore.exceptions import ClientError
 dynamodb = boto3.resource('dynamodb')
 sfn_client = boto3.client('stepfunctions')
 
-# Tablas DynamoDB
-inventory_table = dynamodb.Table(os.environ['INVENTORY_TABLE'])
 reservations_table = dynamodb.Table(os.environ['RESERVATIONS_TABLE'])
-
-# Step Functions
 STATE_MACHINE_ARN = os.environ['STATE_MACHINE_ARN']
-
 
 def handler(event, context):
     for record in event['Records']:
         try:
-            # 1. Parsear mensaje desde SQS (viene de EventBridge)
+            # 1. Parsear mensaje (Viene de SQS <--- EventBridge)
             message_body = json.loads(record['body'])
-            detail = message_body['detail']
+            # IMPORTANTE: EventBridge mete el evento dentro de la llave 'detail'
+            detail = message_body.get('detail', message_body)
 
+            reservation_id = detail['reservationId']
             event_id = detail['eventId']
             seat_id = detail['seatId']
-            reservation_id = detail['reservationId']
             email = detail['userEmail']
 
-            print(f"[INFO] Procesando reserva {reservation_id} | Asiento {seat_id}")
+            print(f"[INFO] Procesando reserva {reservation_id}")
 
             now = int(time.time())
-            expires_at = now + 30  # TTL 30s
+            expires_at = now + 600 # 10 minutos de gracia (ajustable)
 
             # ------------------------------------------------------------------
-            # 2. CREAR RESERVA (IDEMPOTENTE)
+            # 2. CREAR REGISTRO DE RESERVA (Para trazabilidad del flujo)
             # ------------------------------------------------------------------
             try:
                 reservations_table.put_item(
@@ -49,58 +45,27 @@ def handler(event, context):
                     },
                     ConditionExpression="attribute_not_exists(ReservationID)"
                 )
-                print(f"[OK] Reserva {reservation_id} creada")
-
             except ClientError as e:
                 if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
-                    # Evento duplicado → comportamiento esperado
-                    print(f"[WARN] Reserva {reservation_id} ya existe. Evento duplicado. Ignorando.")
+                    print(f"[WARN] Reserva {reservation_id} ya procesada. Saltando.")
                     continue
                 raise
 
             # ------------------------------------------------------------------
-            # 3. RESERVAR ASIENTO (TRANSACCIÓN CONDICIONAL)
-            # ------------------------------------------------------------------
-            try:
-                inventory_table.update_item(
-                    Key={
-                        'EventID': event_id,
-                        'SeatID': seat_id
-                    },
-                    UpdateExpression="SET #s = :new_status",
-                    ConditionExpression="#s = :expected_status",
-                    ExpressionAttributeNames={
-                        '#s': 'status'
-                    },
-                    ExpressionAttributeValues={
-                        ':new_status': 'RESERVED',
-                        ':expected_status': 'AVAILABLE'
-                    }
-                )
-                print(f"[OK] Asiento {seat_id} marcado como RESERVED")
-
-            except ClientError as e:
-                if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
-                    print(f"[WARN] Asiento {seat_id} ya no disponible. Abortando flujo.")
-                    continue
-                raise
-
-            # ------------------------------------------------------------------
-            # 4. INICIAR STEP FUNCTION (UNA SOLA VEZ)
+            # 3. INICIAR STEP FUNCTION (EL MOTOR)
             # ------------------------------------------------------------------
             sfn_client.start_execution(
                 stateMachineArn=STATE_MACHINE_ARN,
-                name=f"exec-{reservation_id}",  # nombre único = idempotencia
+                name=f"exec-{reservation_id}", # Idempotencia: evita ejecuciones dobles
                 input=json.dumps({
                     "reservationId": reservation_id
                 })
             )
-
             print(f"[OK] Step Function iniciada para {reservation_id}")
 
         except Exception as e:
-            # Error real → SQS reintenta
-            print(f"[ERROR] Fallo procesando mensaje SQS: {str(e)}")
-            raise
+            print(f"[ERROR] Error crítico: {str(e)}")
+            # No lanzamos raise aquí para que un mensaje malo no bloquee el lote entero, 
+            # pero en producción se recomienda usar Dead Letter Queues (DLQ).
 
     return {"status": "SUCCESS"}
