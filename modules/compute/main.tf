@@ -70,6 +70,7 @@ resource "aws_lambda_function" "ingestion" {
   runtime          = "python3.13"
   filename         = data.archive_file.ingestion_zip.output_path
   source_code_hash = data.archive_file.ingestion_zip.output_base64sha256
+  timeout          = 10  # ← AGREGADO
 
   environment {
     variables = {
@@ -87,6 +88,7 @@ resource "aws_lambda_function" "process_reservation" {
   runtime          = "python3.13"
   filename         = data.archive_file.process_zip.output_path
   source_code_hash = data.archive_file.process_zip.output_base64sha256
+  timeout          = 10  # ← AGREGADO
 
   environment {
     variables = {
@@ -104,6 +106,7 @@ resource "aws_lambda_function" "payment" {
   runtime          = "python3.13"
   filename         = data.archive_file.payment_zip.output_path
   source_code_hash = data.archive_file.payment_zip.output_base64sha256
+  timeout          = 10  # ← AGREGADO (CRÍTICO PARA PAYMENT)
 
   environment {
     variables = {
@@ -122,7 +125,7 @@ resource "aws_lambda_function" "pdf_generator" {
   
   # Uso de la capa de fpdf2 y aumento de timeout
   layers           = [aws_lambda_layer_version.fpdf_layer.arn]
-  timeout          = 30
+  timeout          = 30  # ← YA ESTABA
 
   environment {
     variables = {
@@ -139,6 +142,7 @@ resource "aws_lambda_function" "notification" {
   runtime          = "python3.13"
   filename         = data.archive_file.notification_zip.output_path
   source_code_hash = data.archive_file.notification_zip.output_base64sha256
+  timeout          = 10  # ← AGREGADO
 
   environment {
     variables = {
@@ -154,6 +158,7 @@ resource "aws_lambda_function" "save_token" {
   runtime          = "python3.13"
   filename         = data.archive_file.save_token_zip.output_path
   source_code_hash = data.archive_file.save_token_zip.output_base64sha256
+  timeout          = 10  # ← AGREGADO
 
   environment {
     variables = {
@@ -169,6 +174,7 @@ resource "aws_lambda_function" "get_ticket_url" {
   runtime          = "python3.13"
   filename         = data.archive_file.get_ticket_url_zip.output_path
   source_code_hash = data.archive_file.get_ticket_url_zip.output_base64sha256
+  timeout          = 10  # ← AGREGADO
 
   environment {
     variables = {
