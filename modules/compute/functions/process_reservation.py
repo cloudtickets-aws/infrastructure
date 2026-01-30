@@ -4,79 +4,103 @@ import boto3
 import time
 from botocore.exceptions import ClientError
 
-# Inicializar recursos
+# Inicializar recursos AWS
 dynamodb = boto3.resource('dynamodb')
-# Cliente para Step Functions
 sfn_client = boto3.client('stepfunctions')
 
+# Tablas DynamoDB
 inventory_table = dynamodb.Table(os.environ['INVENTORY_TABLE'])
 reservations_table = dynamodb.Table(os.environ['RESERVATIONS_TABLE'])
-# ARN de la State Machine desde variables de entorno
+
+# Step Functions
 STATE_MACHINE_ARN = os.environ['STATE_MACHINE_ARN']
+
 
 def handler(event, context):
     for record in event['Records']:
         try:
-            # 1. Parsear el mensaje
+            # 1. Parsear mensaje desde SQS (viene de EventBridge)
             message_body = json.loads(record['body'])
             detail = message_body['detail']
-            
+
             event_id = detail['eventId']
             seat_id = detail['seatId']
             reservation_id = detail['reservationId']
             email = detail['userEmail']
-            
-            print(f"Procesando reserva {reservation_id} para el asiento {seat_id}")
 
-            # 2. Transacción: Actualizar Inventario a RESERVED
+            print(f"[INFO] Procesando reserva {reservation_id} | Asiento {seat_id}")
+
+            now = int(time.time())
+            expires_at = now + 30  # TTL 30s
+
+            # ------------------------------------------------------------------
+            # 2. CREAR RESERVA (IDEMPOTENTE)
+            # ------------------------------------------------------------------
+            try:
+                reservations_table.put_item(
+                    Item={
+                        'ReservationID': reservation_id,
+                        'EventID': event_id,
+                        'SeatID': seat_id,
+                        'UserEmail': email,
+                        'status': 'PENDING',
+                        'CreatedAt': now,
+                        'ExpiresAt': expires_at
+                    },
+                    ConditionExpression="attribute_not_exists(ReservationID)"
+                )
+                print(f"[OK] Reserva {reservation_id} creada")
+
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+                    # Evento duplicado → comportamiento esperado
+                    print(f"[WARN] Reserva {reservation_id} ya existe. Evento duplicado. Ignorando.")
+                    continue
+                raise
+
+            # ------------------------------------------------------------------
+            # 3. RESERVAR ASIENTO (TRANSACCIÓN CONDICIONAL)
+            # ------------------------------------------------------------------
             try:
                 inventory_table.update_item(
-                    Key={'EventID': event_id, 'SeatID': seat_id},
+                    Key={
+                        'EventID': event_id,
+                        'SeatID': seat_id
+                    },
                     UpdateExpression="SET #s = :new_status",
                     ConditionExpression="#s = :expected_status",
-                    ExpressionAttributeNames={'#s': 'status'},
+                    ExpressionAttributeNames={
+                        '#s': 'status'
+                    },
                     ExpressionAttributeValues={
                         ':new_status': 'RESERVED',
                         ':expected_status': 'AVAILABLE'
                     }
                 )
+                print(f"[OK] Asiento {seat_id} marcado como RESERVED")
+
             except ClientError as e:
                 if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
-                    print(f"Error: El asiento {seat_id} ya fue tomado por otro proceso.")
+                    print(f"[WARN] Asiento {seat_id} ya no disponible. Abortando flujo.")
                     continue
-                raise e
+                raise
 
-            # 3. Crear el registro en la tabla de Reservas
-            expires_at = int(time.time()) + 30 
-            
-            reservations_table.put_item(
-                Item={
-                    'ReservationID': reservation_id,
-                    'EventID': event_id,
-                    'SeatID': seat_id,
-                    'UserEmail': email,
-                    'status': 'PENDING',
-                    'CreatedAt': int(time.time()),
-                    'ExpiresAt': expires_at
-                }
-            )
-
-            print(f"Reserva {reservation_id} creada exitosamente.")
-
-            # 4. INICIAR STEP FUNCTIONS (El Orquestador)
-            # Le pasamos el reservationId como entrada para que sepa qué vigilar
+            # ------------------------------------------------------------------
+            # 4. INICIAR STEP FUNCTION (UNA SOLA VEZ)
+            # ------------------------------------------------------------------
             sfn_client.start_execution(
                 stateMachineArn=STATE_MACHINE_ARN,
-                name=f"exec-{reservation_id}-{int(time.time())}", # Nombre único para la ejecución
+                name=f"exec-{reservation_id}",  # nombre único = idempotencia
                 input=json.dumps({
                     "reservationId": reservation_id
                 })
             )
-            
-            print(f"Step Function iniciada para la reserva {reservation_id}")
+
+            print(f"[OK] Step Function iniciada para {reservation_id}")
 
         except Exception as e:
-            print(f"Error procesando registro SQS: {str(e)}")
-            raise e
+            # Error real → SQS reintenta
+            print(f"[ERROR] Fallo procesando mensaje SQS: {str(e)}")
+            raise
 
     return {"status": "SUCCESS"}
