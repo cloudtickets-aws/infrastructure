@@ -29,3 +29,17 @@ provider "aws" {
   }
 }
 
+# Provider específico para el WAF (Requerido por CloudFront)
+provider "aws" {
+  alias  = "us_east_1"
+  region = "us-east-1"
+
+  default_tags {
+    tags = {
+      Project   = "CloudTickets"
+      ManagedBy = "Terraform"
+      Owner     = "Oscar"
+      Layer     = "Edge-Security"
+    }
+  }
+}

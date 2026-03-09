@@ -11,3 +11,7 @@ output "lambda_ingestion_role_name" {
 output "sfn_role_arn" {
   value = aws_iam_role.sfn_role.arn # <-- Agrega esto
 }
+
+output "waf_acl_arn" {
+  value = aws_wafv2_web_acl.cloudfront_waf.arn
+}

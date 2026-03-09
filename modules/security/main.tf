@@ -204,3 +204,43 @@ resource "aws_iam_role_policy_attachment" "attach_sfn_main" {
   role       = aws_iam_role.sfn_role.name
   policy_arn = aws_iam_policy.sfn_main_policy.arn
 }
+
+resource "aws_wafv2_web_acl" "cloudfront_waf" {
+  name        = "${var.project_name}-waf-${var.environment}"
+  description = "WAF para CloudFront"
+  scope       = "CLOUDFRONT" 
+
+  default_action {
+    allow {}
+  }
+
+  # Regla 1: Protección básica contra ataques comunes (SQLi, XSS)
+  rule {
+    name     = "AWS-AWSManagedRulesCommonRuleSet"
+    priority = 1
+
+    override_action {
+      none {}
+    }
+
+    statement {
+      managed_rule_group_statement {
+        name        = "AWSManagedRulesCommonRuleSet"
+        vendor_name = "AWS"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "WAFCommonRule"
+      sampled_requests_enabled   = true
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true
+    metric_name                = "cloudfrontWAF"
+    sampled_requests_enabled   = true
+  }
+}
+

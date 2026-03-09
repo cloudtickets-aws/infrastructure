@@ -5,6 +5,9 @@ module "storage" {
   source       = "./modules/storage"
   project_name = var.project_name
   environment  = var.environment
+  
+  # Recibe el WAF desde el módulo de seguridad (paso 2)
+  web_acl_id   = module.security.waf_acl_arn
 }
 
 module "messaging" {
@@ -14,12 +17,18 @@ module "messaging" {
 }
 
 # ==========================================
-# 2. CAPA DE SEGURIDAD (IAM)
+# 2. CAPA DE SEGURIDAD (IAM & WAF)
 # ==========================================
 module "security" {
   source       = "./modules/security"
   project_name = var.project_name
   environment  = var.environment
+
+  # FORZAMOS el uso del alias us_east_1 definido en providers.tf 
+  # para que el WAF se cree en la región global requerida por CloudFront.
+  providers = {
+    aws = aws.us_east_1
+  }
 
   # Dependencias de Storage
   frontend_bucket_id     = module.storage.frontend_bucket_id
@@ -30,7 +39,7 @@ module "security" {
   
   # Dependencias de Messaging
   reservation_queue_arn  = module.messaging.reservation_queue_arn
-  pdf_queue_arn          = module.messaging.pdf_queue_arn # Ahora sí existe el output
+  pdf_queue_arn          = module.messaging.pdf_queue_arn
 }
 
 # ==========================================
@@ -48,12 +57,12 @@ module "compute" {
   # Inyectamos Recursos de Storage
   inventory_table_name      = module.storage.inventory_table_name
   reservations_table_name   = module.storage.reservations_table_name
-  tickets_bucket_name    = module.storage.tickets_bucket_name
+  tickets_bucket_name       = module.storage.tickets_bucket_name
 
   # Inyectamos Recursos de Messaging
   event_bus_name            = module.messaging.event_bus_name 
   event_bus_arn             = module.messaging.event_bus_arn
   reservation_queue_arn     = module.messaging.reservation_queue_arn
-  notification_queue_arn = module.messaging.notification_queue_arn
-  pdf_queue_arn          = module.messaging.pdf_queue_arn
+  notification_queue_arn    = module.messaging.notification_queue_arn
+  pdf_queue_arn             = module.messaging.pdf_queue_arn
 }
